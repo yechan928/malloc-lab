@@ -22,7 +22,7 @@ static char *mem_max_addr;   /* largest legal heap address */
 /* 
  * mem_init - initialize the memory system model
  */
-void mem_init(void)
+void mem_init(void) //할당기를 초기화하는 함수 
 {
     /* allocate the storage we will use to model the available VM */
     if ((mem_start_brk = (char *)malloc(MAX_HEAP)) == NULL) {
