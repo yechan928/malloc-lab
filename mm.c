@@ -1,14 +1,3 @@
-/*
- * mm-naive.c - The fastest, least memory-efficient malloc package.
- *
- * In this naive approach, a block is allocated by simply incrementing
- * the brk pointer.  A block is pure payload. There are no headers or
- * footers.  Blocks are never coalesced or reused. Realloc is
- * implemented directly using mm_malloc and mm_free.
- *
- * NOTE TO STUDENTS: Replace this header comment with your own header
- * comment that gives a high level description of your solution.
- */
  #include <stdio.h>
  #include <stdlib.h>
  #include <assert.h>
@@ -18,20 +7,11 @@
  #include "mm.h"
  #include "memlib.h"
  
- /*********************************************************
-  * NOTE TO STUDENTS: Before you do anything else, please
-  * provide your team information in the following struct.
-  ********************************************************/
  team_t team = {
-     /* Team name */
      "ateam",
-     /* First member's full name */
      "Harry Bovik",
-     /* First member's email address */
      "bovik@cs.cmu.edu",
-     /* Second member's full name (leave blank if none) */
      "",
-     /* Second member's email address (leave blank if none) */
      ""};
  
  /* single word (4) or double word (8) alignment */
@@ -46,44 +26,44 @@
  #define WSIZE 4        // 워드 크기 (헤더/풋터에 사용) : 4바이트
  #define DSIZE 8        // 더블 워드 크기(정렬 단위) : 8바이트
  #define CHUNKSIZE (1<<12)  // 힙을 확장할 때 한 번에 늘리는 크기 
-
  #define MAX(x,y) ((x) > (y) ? (x) : (y)) 
-
  /* 크기와 할당 비트를 하나의 워드로 결합 */
  #define PACK(size,alloc) ((size)|(alloc)) // size : 블록 크기, alloc : 할당 여부( 0 또는 1)
- 
  /* 주소 p에서 워드 읽기, 쓰기*/
  #define GET(p)     (*(unsigned int *)(p))  // p가 가리키는 워드(4바이트)를 읽어서 unsigned int로 반환
  #define PUT(p,val) (*(unsigned int *)(p) = (val)) // p가 가리키는 워드에 val을 저장 
-
  /* 워드에서 블록 크기와 할당 여부 추출 */
  #define GET_SIZE(p)    (GET(p) & ~0x7)     // 블록크기를 반환 (하위 3비트를 제외한 상위비트를 가져옴)
  #define GET_ALLOC(p)    (GET(p )& 0x1)     // 할당여부를 반환(0: free, 1: allocated) / 최하위 비트를 봄
-
  /* 블록 포인터 (bp)로부터 헤터/풋터 주소 계산   (bp : 페이로드의 시작주소를 가리키는 포인터)  */
  #define HDRP(bp)       ((char *)(bp) - WSIZE)        // HDRP(bp): 블록 헤더 주소 = bp(페이로드 시작) 바로 앞 WSIZE 바이트
  #define FTRP(bp)       ((char *)(bp) + GET_SIZE(HDRP(bp)) - DSIZE)     // FTRP(bp): 블록 풋터 주소 = bp + 블록 전체 크기(GET_SIZE) - DSIZE
-
  /* 블록 포인터 (bp)로 부터 다음/ 이전 블록의 페이로드 시작 주소 계산*/
  #define NEXT_BLKP(bp)      ((char *)(bp) + GET_SIZE(((char *)(bp)-WSIZE)))    // NEXT_BLKP(bp): 다음 블록의 페이로드 = bp + 현재 블록 크기
  #define PREV_BLKP(bp)      ((char *)(bp) - GET_SIZE(((char *)(bp)-DSIZE)))    // PREV_BLKP(bp): 이전 블록의 페이로드 = bp - 이전 블록 크기
 
 
  static char* heap_listp;
-
+ static void* last_bp;
  // 가용 리스트(heap_listp)에서 요청크기(asize)에 맞는 첫번째 블록을 찾아 리턴하는 함수
  static void *find_fit(size_t asize){
-
-    /* First-fit search */
-    void *bp;   // bp(블록 포인터) : 페이로드 시작 주소
-
-    // heap_listp부터 시작해, 에필로그 전까지 순회
-    for (bp = heap_listp; GET_SIZE(HDRP(bp)) > 0; bp  = NEXT_BLKP(bp)){
-        // 현재 블록이 free인지 그리고 크기가 충분한지 확인
-        if (!GET_ALLOC(HDRP(bp)) && (asize <= GET_SIZE(HDRP(bp)))){
-            return bp;  //조건 만족시 이 bp를 반환
+    void *bp;
+    //next-fit 전략
+    
+    //from last_bp to end of heap
+    for (bp = NEXT_BLKP(last_bp); GET_SIZE(HDRP(bp))!=0; bp = NEXT_BLKP(bp)){
+        if (!GET_ALLOC(HDRP(bp)) && GET_SIZE(HDRP(bp)) >= asize) {
+            return bp;
         }
     }
+ 
+    // from start of heap to last_bp
+    for (bp = heap_listp; bp <= last_bp; bp = NEXT_BLKP(bp)){
+        if (!GET_ALLOC(HDRP(bp)) && GET_SIZE(HDRP(bp)) >= asize) {
+            return bp;
+        }
+    }
+
     return NULL;    // 끝까지 못 찾으면 NULL을 반환
  }
 
@@ -111,7 +91,7 @@
  }
 
  // 현재 블록 bp를 기준으로 이전(prev) 및 다음(next) 블록과 free여부 를 확인하여 4가지 경우에 맞춰 블록을 병합하는 함수 -> 반환값 : 병합 후 블록의 페이로드(bp)
- static void*coalesce(void *bp)  
+ static void *coalesce(void *bp)  
  {
     size_t prev_alloc = GET_ALLOC(FTRP(PREV_BLKP(bp)));
     size_t next_alloc = GET_ALLOC(HDRP(NEXT_BLKP(bp)));
@@ -119,6 +99,7 @@
 
     // case 1 (prev_alloc=1, next_alloc=1 → 양쪽 모두 할당됨)
     if (prev_alloc && next_alloc){
+        last_bp = bp;      // mm_init() 시 extend_heap() → coalesce() 경로에서 최초 생성된 가용 블록을 last_bp에 기록하여 next-fit 검색의 시작점을 설정
         return bp;  // 병합 없이 그대로 반환
     }
 
@@ -223,6 +204,7 @@
     // 가용 리스트에서 asize 크기에 맞는 블록 검색
     if ((bp = find_fit(asize)) != NULL){    
         place(bp, asize);       //found : 해당 블록을 place()로 분할,할당 처리 후 리턴
+        last_bp = bp;
         return bp;      
     }
     
