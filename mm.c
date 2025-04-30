@@ -81,7 +81,7 @@ static void remove_free_list(void *bp){
     }
 }
 
- // 가용 리스트(heap_listp)에서 요청크기(asize)에 맞는 첫번째 블록을 찾아 리턴하는 함수
+ // free_list에서 요청크기(asize)에 맞는 블록을 찾아 리턴하는 함수
  static void *find_fit(size_t asize){
 
     /* First-fit search */
